@@ -636,10 +636,7 @@ class StockEntry(StockController):
 			if (
 				(self.purpose == "Manufacture" or self.purpose == "Material Consumption for Manufacture")
 				and self.work_order
-				and frappe.get_cached_value(
-					"Work Order", self.work_order, "make_finished_good_against_job_card"
-				)
-				!= 1
+				and frappe.get_cached_value("Work Order", self.work_order, "track_semi_finished_goods") != 1
 			):
 				if not self.fg_completed_qty:
 					frappe.throw(_("For Quantity (Manufactured Qty) is mandatory"))

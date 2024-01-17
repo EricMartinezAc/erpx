@@ -111,8 +111,16 @@ class WorkstationDashboard {
 
 		this.$wrapper.html(template);
 		this.prepare_timer();
+		this.setup_menu_actions();
 		this.toggle_job_card();
 		this.bind_events();
+	}
+
+	setup_menu_actions() {
+		this.$wrapper.find(".job-card-menu").click((event) => {
+			event.stopPropagation();
+			// $(event.currentTarget).find(".dropdown-list").toggleClass("hidden");
+		});
 	}
 
 	toggle_job_card() {
