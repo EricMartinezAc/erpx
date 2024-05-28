@@ -14,9 +14,8 @@ class Operation(Document):
 	from typing import TYPE_CHECKING
 
 	if TYPE_CHECKING:
-		from frappe.types import DF
-
 		from erpnext.manufacturing.doctype.sub_operation.sub_operation import SubOperation
+		from frappe.types import DF
 
 		batch_size: DF.Int
 		create_job_card_based_on_batch_size: DF.Check

@@ -229,7 +229,17 @@ def get_job_cards(workstation):
 			)
 			row.progress_title = _("Total completed quantity: {0}").format(row.total_completed_qty)
 			row.status_color = get_status_color(row.status)
-			row.job_card_link = get_link_to_form("Job Card", row.name)
+			row.job_card_link = (
+				f"""
+					<a class="ellipsis" data-doctype="Job Card" data-name="{row.name}" href="/app/job-card/{row.name}" title="" data-original-title="{row.name}">{row.name}</a>
+				"""
+			)
+
+			row.operation_link = (
+				f"""
+					<a class="ellipsis" data-doctype="Operation" data-name="{row.operation}" href="/app/operation/{row.operation}" title="" data-original-title="{row.operation}">{row.operation}</a>
+				"""
+			)
 			row.work_order_link = get_link_to_form("Work Order", row.work_order)
 
 			row.raw_materials = raw_materials.get(row.name, [])
@@ -243,15 +253,15 @@ def get_job_cards(workstation):
 
 def get_status_color(status):
 	color_map = {
-		"Pending": "var(--bg-blue)",
-		"In Process": "var(--bg-yellow)",
-		"Submitted": "var(--bg-blue)",
-		"Open": "var(--bg-gray)",
-		"Closed": "var(--bg-green)",
-		"Work In Progress": "var(--bg-orange)",
+		"Pending": "blue",
+		"In Process": "yellow",
+		"Submitted": "blue",
+		"Open": "gray",
+		"Closed": "green",
+		"Work In Progress": "orange",
 	}
 
-	return color_map.get(status, "var(--bg-blue)")
+	return color_map.get(status, "blue")
 
 
 def get_raw_materials(job_cards):
@@ -392,18 +402,18 @@ def get_workstations(**kwargs):
 	data = query.run(as_dict=True)
 
 	color_map = {
-		"Production": "var(--green-600)",
-		"Off": "var(--gray-600)",
-		"Idle": "var(--gray-600)",
-		"Problem": "var(--red-600)",
-		"Maintenance": "var(--yellow-600)",
-		"Setup": "var(--blue-600)",
+		"Production": "green",
+		"Off": "gray",
+		"Idle": "gray",
+		"Problem": "red",
+		"Maintenance": "yellow",
+		"Setup": "blue",
 	}
 
 	for d in data:
 		d.workstation_name = get_link_to_form("Workstation", d.name)
 		d.status_image = d.on_status_image
-		d.background_color = color_map.get(d.status, "var(--red-600)")
+		d.color = color_map.get(d.status, "red")
 		d.workstation_link = get_url_to_form("Workstation", d.name)
 		if d.status != "Production":
 			d.status_image = d.off_status_image
