@@ -2,6 +2,7 @@
 # See license.txt
 
 import unittest
+from unittest.mock import DEFAULT, Mock, patch
 
 import frappe
 
@@ -13,7 +14,13 @@ from erpnext.setup.utils import get_exchange_rate
 
 test_dependencies = ["Currency Exchange", "Journal Entry", "Contact", "Address"]
 
-payment_gateway = {"doctype": "Payment Gateway", "gateway": "_Test Gateway"}
+PAYMENT_URL = "http://localhost/pay?ref=_Test Integration Request"
+
+payment_gateways = [
+	{"doctype": "Payment Gateway", "gateway": "_Test Gateway"},
+	{"doctype": "Payment Gateway", "gateway": "_Test Gateway Phone"},
+	{"doctype": "Payment Gateway", "gateway": "_Test Gateway Other"},
+]
 
 payment_method = [
 	{
@@ -29,13 +36,79 @@ payment_method = [
 		"payment_account": "_Test Bank USD - _TC",
 		"currency": "USD",
 	},
+	{
+		"doctype": "Payment Gateway Account",
+		"payment_gateway": "_Test Gateway Other",
+		"payment_account": "_Test Bank USD - _TC",
+		"payment_channel": "Other",
+		"currency": "USD",
+	},
+	{
+		"doctype": "Payment Gateway Account",
+		"payment_gateway": "_Test Gateway Phone",
+		"payment_account": "_Test Bank USD - _TC",
+		"payment_channel": "Phone",
+		"currency": "USD",
+	},
 ]
+
+integration_request = {
+	"doctype": "Payment Gateway Account",
+	"payment_gateway": "_Test Gateway Phone",
+	"payment_account": "_Test Bank USD - _TC",
+	"payment_channel": "Phone",
+	"currency": "USD",
+}
+
+
+class GatewayControllerInterface:
+	# new style interface
+
+	def initiate(self, tx_data, gateway, correlation_id=None, name=None) -> str:
+		return "_Test Integration Request"
+
+	def get_payment_url(self, integration_request_name: str) -> str:
+		return PAYMENT_URL
+
+	def is_user_flow_initiation_delegated(self, integration_request_name: str) -> bool:
+		return False
+
+	# old style (ad-hoc) interface
+
+	def validate_transaction_currency(self, currency: str) -> None:
+		return
+
+	def request_for_payment(self, **kwargs) -> None:
+		return
+
+
+def patch_gateway_controller(self):
+	send_email = patch(
+		"erpnext.accounts.doctype.payment_request.payment_request.PaymentRequest.send_email",
+		return_value=None,
+	)
+	self.send_email = send_email.start()
+	self.addCleanup(send_email.stop)
+	get_payment_url = patch(
+		# this also shadows one (1) call to _get_payment_controller
+		"erpnext.accounts.doctype.payment_request.payment_gateway_v1.get_payment_url",
+		return_value=PAYMENT_URL,
+	)
+	self.get_payment_url = get_payment_url.start()
+	self.addCleanup(get_payment_url.stop)
+	_get_payment_controller = patch(
+		"erpnext.accounts.doctype.payment_request.payment_gateway_v1._get_payment_controller",
+		return_value=Mock(wraps=GatewayControllerInterface()),
+	)
+	self._get_payment_controller = _get_payment_controller.start()
+	self.addCleanup(_get_payment_controller.stop)
 
 
 class TestPaymentRequest(unittest.TestCase):
 	def setUp(self):
-		if not frappe.db.get_value("Payment Gateway", payment_gateway["gateway"], "name"):
-			frappe.get_doc(payment_gateway).insert(ignore_permissions=True)
+		for payment_gateway in payment_gateways:
+			if not frappe.db.get_value("Payment Gateway", payment_gateway["gateway"], "name"):
+				frappe.get_doc(payment_gateway).insert(ignore_permissions=True)
 
 		for method in payment_method:
 			if not frappe.db.get_value(
@@ -44,6 +117,7 @@ class TestPaymentRequest(unittest.TestCase):
 				"name",
 			):
 				frappe.get_doc(method).insert(ignore_permissions=True)
+		patch_gateway_controller(self)
 
 	def test_payment_request_linkings(self):
 		so_inr = make_sales_order(currency="INR", do_not_save=True)
@@ -74,6 +148,102 @@ class TestPaymentRequest(unittest.TestCase):
 		self.assertEqual(pr.reference_doctype, "Sales Invoice")
 		self.assertEqual(pr.reference_name, si_usd.name)
 		self.assertEqual(pr.currency, "USD")
+
+	def test_payment_channels(self):
+		so = make_sales_order(currency="USD")
+
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway_account="_Test Gateway Other - USD",
+			submit_doc=True,
+			return_doc=True,
+		)
+		self.assertEqual(pr.payment_channel, "Other")
+		self.assertEqual(pr.mute_email, True)
+
+		self.assertEqual(pr.payment_url, PAYMENT_URL)
+		self.assertEqual(self.send_email.call_count, 0)
+		pr.cancel()
+
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway_account="_Test Gateway - USD",  # email channel
+			submit_doc=False,
+			return_doc=True,
+		)
+		pr.flags.mute_email = True  # but temporarily prohibit sending
+		pr.submit()
+		pr.reload()
+		self.assertEqual(pr.payment_channel, "Email")
+		self.assertEqual(pr.mute_email, False)
+
+		self.assertEqual(pr.payment_url, PAYMENT_URL)
+		self.assertEqual(self.send_email.call_count, 0)  # hence: no increment
+		pr.cancel()
+
+		# a phone controller presumable would override get_payment_url
+		self._get_payment_controller().get_payment_url.return_value = None
+
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway_account="_Test Gateway Phone - USD",
+			submit_doc=True,
+			return_doc=True,
+		)
+		pr.reload()
+
+		self.assertEqual(pr.payment_channel, "Phone")
+		self.assertEqual(pr.mute_email, True)
+
+		self.assertIsNone(pr.payment_url)
+		self.assertEqual(self.send_email.call_count, 0)  # no increment on phone channel
+		pr.cancel()
+
+		# restore
+		self._get_payment_controller().get_payment_url.return_value = DEFAULT
+
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway_account="_Test Gateway - USD",  # email channel
+			submit_doc=True,
+			return_doc=True,
+		)
+		pr.reload()
+
+		self.assertEqual(pr.payment_channel, "Email")
+		self.assertEqual(pr.mute_email, False)
+
+		self.assertEqual(pr.payment_url, PAYMENT_URL)
+		self.assertEqual(self.send_email.call_count, 1)  # increment on normal email channel
+		pr.cancel()
+
+		so = make_sales_order(currency="USD", do_not_save=True)
+		# no-op; for optical consistency with how a webshop SO would look like
+		so.order_type = "Shopping Cart"
+		so.save()
+		pr = make_payment_request(
+			dt="Sales Order",
+			dn=so.name,
+			payment_gateway_account="_Test Gateway - USD",  # email channel
+			make_sales_invoice=True,
+			mute_email=True,
+			submit_doc=True,
+			return_doc=True,
+		)
+		pr.reload()
+
+		self.assertEqual(pr.payment_channel, "Email")
+		self.assertEqual(pr.mute_email, True)
+
+		self.assertEqual(pr.payment_url, PAYMENT_URL)
+		self.assertEqual(self.send_email.call_count, 1)  # no increment on shopping cart
+		pr.cancel()
+
+		# self.assertEqual(self._get_payment_controller().initiate.call_count, 5)
 
 	def test_payment_entry_against_purchase_invoice(self):
 		si_usd = make_purchase_invoice(
