@@ -308,10 +308,7 @@ def get_conditions(filters):
 						filters[dimension.fieldname] = get_dimension_with_children(
 							dimension.document_type, filters.get(dimension.fieldname)
 						)
-						conditions.append(f"{dimension.fieldname} in %({dimension.fieldname})s")
-					else:
-						conditions.append(f"{dimension.fieldname} in %({dimension.fieldname})s")
-
+					conditions.append(f"{dimension.fieldname} in %({dimension.fieldname})s")
 	return "and {}".format(" and ".join(conditions)) if conditions else ""
 
 

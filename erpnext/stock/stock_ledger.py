@@ -659,18 +659,16 @@ class update_entries_after:
 		)
 
 		if not dependant_sle:
-			return entries_to_fix
+			pass
 		elif dependant_sle.item_code == self.item_code and dependant_sle.warehouse == self.args.warehouse:
-			return entries_to_fix
+			pass
 		elif dependant_sle.item_code != self.item_code:
 			self.update_distinct_item_warehouses(dependant_sle)
-			return entries_to_fix
-		elif dependant_sle.item_code == self.item_code and dependant_sle.warehouse in self.data:
-			return entries_to_fix
-		else:
+		elif dependant_sle.warehouse not in self.data:
 			self.initialize_previous_data(dependant_sle)
 			self.update_distinct_item_warehouses(dependant_sle)
-			return entries_to_fix
+
+		return entries_to_fix
 
 	def update_distinct_item_warehouses(self, dependant_sle):
 		key = (dependant_sle.item_code, dependant_sle.warehouse)
@@ -1654,11 +1652,11 @@ def get_valuation_rate(
 		# try Item Standard rate
 		valuation_rate = frappe.db.get_value("Item", item_code, "standard_rate")
 
-		if not valuation_rate:
-			# try in price list
-			valuation_rate = frappe.db.get_value(
-				"Item Price", dict(item_code=item_code, buying=1, currency=currency), "price_list_rate"
-			)
+	if not valuation_rate:
+		# try in price list
+		valuation_rate = frappe.db.get_value(
+			"Item Price", dict(item_code=item_code, buying=1, currency=currency), "price_list_rate"
+		)
 
 	if (
 		not allow_zero_rate
